@@ -6,6 +6,7 @@ const Order = require("../models/order");
 const Poloniex = require("poloniex-api-node");
 const PoloniexWebsocket = require("./poloniex_websocket");
 const rp = require("request-promise");
+const Status = require("../models/status");
 
 const POLONIEX_STATUSES = (status) => {
     switch(status) {
@@ -22,20 +23,41 @@ class PoloniexConnector extends Connector{
     constructor(exchange) {
         super();
         this.poloniex = new Poloniex(exchange.apiKey, exchange.secretKey, { nonce: () => Date.now() });
-        this.websocket = new PoloniexWebsocket(exchange, this);
+        this.websocket = new PoloniexWebsocket(exchange, this.poloniex);
         this.exchange = exchange;
         this.publicApi = "https://poloniex.com/public";
         this.privateApi = "https://poloniex.com/tradingApi";
     }
 
-    async submitOrder(order, fillOrKill, immediateOrCancel, postOnly) {
-        let response;
-        if (order.side === "buy")
-            response = await this.poloniex.buy(order.pair, order.rate, order.amount, fillOrKill, immediateOrCancel, postOnly);
-        else if (order.side === "sell")
-            response = await this.poloniex.sell(order.pair, order.rate, order.amount, fillOrKill, immediateOrCancel, postOnly);
+    static convertToPoloniexPair(symbol) {
+        const assets = symbol.split('-');
+        return `${assets[1]}_${assets[0]}`;
+    }
 
-        return new Order(order.pair, response.resultingTrades.rate, response.resultingTrades.amount, response.orderNumber, Date.parse(response.resultingTrades.date), order.side, this.exchange, undefined, "opened");
+    static unformatPair(pair) {
+        const assets = pair.split('_');
+        return `${assets[1]}-${assets[0]}`;
+    }
+
+    async submitOrder(order) {
+        let response;
+        const pair = PoloniexConnector.convertToPoloniexPair(order.symbol);
+
+        if (order.side === "buy")
+            response = await this.poloniex.buy(pair, order.price, order.qty);
+        else if (order.side === "sell")
+            response = await this.poloniex.sell(pair, order.price, order.qty);
+
+        return new Order(
+            this.exchange.id,
+            response.orderNumber,
+            order.symbol,
+            order.side,
+            order.price,
+            order.qty,
+            "LIMIT",
+            new Date().getTime(),
+            Status.NEW);
     };
 
     async cancelOrder(order) {

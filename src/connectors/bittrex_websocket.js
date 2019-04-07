@@ -3,6 +3,8 @@ const jsonic = require('jsonic');
 const zlib = require('zlib');
 const Order = require("../models/order");
 const CryptoJS = require("crypto-js");
+const Trade = require("../models/trade");
+const Status = require("../models/status");
 
 const JSON_keys = {
     "A" : "Ask",
@@ -65,21 +67,26 @@ const JSON_keys = {
     "Z" : "Buys",
     "z" : "Pending"
 };
+
 const BITTREX_STATUSES = (status) => {
     switch(status) {
         case 0:
-            return "opened";
+            return Status.NEW;
         case 1:
-            return "fillable";
+            return Status.PARTIALLY_FILLED;
         case 2:
+            return Status.FILLED;
         case 3:
-            return "closed";
+            return Status.CANCELED;
     }
 };
 
+const tempOrders = [];
+
 class BittrexWebsocket {
-    constructor(exchange) {
+    constructor(exchange, connector) {
         this.exchange = exchange;
+        this.connector = connector;
     }
 
     subscribeToOrderUpdates(callback) {
@@ -123,19 +130,33 @@ class BittrexWebsocket {
                                         date = new Date(parsedJSON.Order.Updated);
                                     else if (parsedJSON.Order.Opened)
                                         date = new Date(parsedJSON.Order.Opened);
-                                    else
+                                    else {
                                         date = new Date();
+                                    }
 
-                                    callback(new Order(
-                                        parsedJSON.Order.Exchange.replace("-", "_"),
-                                        parsedJSON.Order.Limit,
-                                        parsedJSON.Order.Quantity,
-                                        parsedJSON.Order.OrderUuid,
-                                        date,
-                                        parsedJSON.Order.OrderType.split("_")[1].toLowerCase(),
-                                        context.exchange,
-                                        parsedJSON.Order.OrderType.split("_")[0].toLowerCase(),
-                                        BITTREX_STATUSES(parsedJSON.Type)), BITTREX_STATUSES(parsedJSON.Type));
+                                    const status = BITTREX_STATUSES(parsedJSON.Type);
+
+                                    if (status !== Status.NEW) {
+                                        const prevQty = tempOrders[parsedJSON.Order.OrderUuid] || parsedJSON.Order.Quantity;
+                                        const tradeQty = status !== Status.CANCELED ?
+                                            prevQty - parsedJSON.Order.QuantityRemaining
+                                            : 0;
+
+                                        if (parsedJSON.Order.QuantityRemaining > 0) {
+                                            tempOrders[parsedJSON.Order.OrderUuid] = parsedJSON.Order.QuantityRemaining;
+                                        } else {
+                                            delete tempOrders[parsedJSON.Order.OrderUuid];
+                                        }
+
+                                        callback(new Trade(
+                                            context.exchange.id,
+                                            parsedJSON.Order.OrderUuid,
+                                            parsedJSON.Order.Id + '_' + parsedJSON.Nonce,
+                                            parsedJSON.Order.PricePerUnit,
+                                            tradeQty,
+                                            status,
+                                            date.getTime()));
+                                    }
                                 }
                             });
                         }
@@ -167,4 +188,4 @@ class BittrexWebsocket {
     }
 }
 
-module.exports = BittrexWebsocket;
+module.exports = { BittrexWebsocket, BittrexStatuses: BITTREX_STATUSES};

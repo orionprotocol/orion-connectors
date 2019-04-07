@@ -1,12 +1,12 @@
 const ExchangeOperation = require( "./exchange_operation" );
 
 class Order extends ExchangeOperation {
-    constructor( pair, rate, amount, id, time, side, exchange, type = "limit", status = null ) {
-        super( side, pair, rate, amount );
-        this.id = id.toString();
-        this.time = time;
+    constructor(exchange, exchangeOrdId, symbol, side, price, qty, ordType = "LIMIT", timestamp, status = null) {
+        super(symbol, side, price, qty);
+        this.exchangeOrdId = exchangeOrdId.toString();
+        this.ordType = ordType;
         this.exchange = exchange;
-        this.type = type;
+        this.timestamp = timestamp;
         this.status = status;
     }
 }

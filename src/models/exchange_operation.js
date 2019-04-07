@@ -1,9 +1,9 @@
 class ExchangeOperation {
-    constructor( side, pair, rate, amount ) {
+    constructor(symbol, side, price, qty) {
+        this.symbol = symbol;
         this.side = side;
-        this.pair = pair;
-        this.rate = parseFloat( rate );
-        this.amount = parseFloat( amount );
+        this.price = parseFloat(price);
+        this.qty = parseFloat(qty);
     }
 }
 

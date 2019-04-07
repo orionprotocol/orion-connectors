@@ -1,6 +1,8 @@
 const Order = require("../models/order");
 const CryptoJS = require("crypto-js");
 let WebSocket = require('ws');
+const Trade = require("../models/trade");
+const Status = require("../models/status");
 
 const CURRENCY_PAIR_LIST = {
     7: "BTC_BCN",
@@ -112,7 +114,18 @@ const CURRENCY_PAIR_LIST = {
     225: "USDC_ETH"
 };
 
-const tempOrders = {};
+const POLONIEX_STATUSES = (status) => {
+    switch(status) {
+        case "Open":
+            return Status.NEW;
+        case "Partially filled":
+            return Status.PARTIALLY_FILLED;
+        case "Cancelled":
+            return Status.CANCELED;
+        default:
+            return Status.FILLED;
+    }
+};
 
 class PoloniexWebsocket {
     constructor(exchange, poloniex) {
@@ -121,69 +134,56 @@ class PoloniexWebsocket {
     }
 
     subscribeToOrderUpdates(callback) {
-        //Init open orders
-        this.poloniex.getOpenOrders().then(orders => {
-            for (let pair in orders) {
-                orders[pair].forEach(function(item, i) {
-                    tempOrders[item.id] = item;
+        //Connect to websocket
+        const socket = new WebSocket('wss://api2.poloniex.com');
+        const current = this;
+
+        socket.onopen = function () {
+            console.log("Successfully connected to poloniex authenticated websocket");
+            const payload = "nonce=" + (new Date()).getTime();
+            const sign = current.createSignature(payload, current.exchange.secretKey);
+            socket.send(JSON.stringify({ command: 'subscribe', channel: 1000, key: current.exchange.apiKey, payload, sign}));
+        };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (Array.isArray(data) && data[0] === 1000 && data.length >= 3) {
+                data[2].forEach(function(event, i) {
+                    if (event[0] === "t") {
+                        callback(new Trade(
+                            current.exchange.id,
+                            event[6],
+                            event[1],
+                            event[2],
+                            event[3],
+                            null,
+                            new Date().getTime()));
+
+                    } else if (event[0] === "o") {
+                        if (parseFloat(event[2]) === 0) {
+                            current.poloniex.returnOrderTrades(event[1])
+                                .catch((err) => {
+                                    if (!err.code) {
+                                        callback(new Trade(
+                                            current.exchange.id,
+                                            event[1],
+                                            event[1],
+                                            0,
+                                            0,
+                                            Status.CANCELED,
+                                            new Date().getTime()));
+                                    }
+                                });
+
+                        }
+                    }
                 })
             }
-        }, error => {
-            console.log("Unexpected error", error.message);
-            callback(undefined);
-        }).then(() => {
-            //Connect to websocket
-            const socket = new WebSocket('wss://api2.poloniex.com');
-            const current = this;
+        };
 
-            socket.onopen = function () {
-                console.log("Successfully connected to poloniex authenticated websocket");
-                const payload = "nonce=" + (new Date()).getTime();
-                const sign = current.createSignature(payload, current.exchange.secretKey);
-                socket.send(JSON.stringify({ command: 'subscribe', channel: 1000, key: current.exchange.apiKey, payload, sign}));
-            };
-
-            socket.onmessage = function (event) {
-                const data = JSON.parse(event.data);
-                if (!Array.isArray(data) || data[0] !== 1000) {
-                    return;
-                } else if (data.length === 3) {
-                    data[2].forEach(function(event, i) {
-                        if (event[0] === "n") {
-                            let order = new Order(
-                                CURRENCY_PAIR_LIST[event[1]],
-                                event[4],
-                                event[5],
-                                event[2],
-                                new Date(event[6]),
-                                event[3] === 1?"buy":"sell",
-                                current.exchange,
-                                undefined,
-                                "opened"
-                            );
-                            tempOrders[event[2]] = order;
-                            callback(order, "opened");
-                        } else if (event[0] === "o") {//Not full order returns
-                            if (tempOrders.hasOwnProperty(event[1])) {
-                                tempOrders[event[1]].amount = parseFloat(event[2]);
-                                tempOrders[event[1]].status = tempOrders[event[1]].amount?"fillable":"closed";
-                                callback(tempOrders[event[1]], tempOrders[event[1]].status);
-                            } else {
-                                return {
-                                    exchangeId: current.exchange.id,
-                                    success: false,
-                                    result: "Unknown order"
-                                };
-                            }
-                        }
-                    })
-                }
-            };
-
-            socket.onerror = function(error) {
-                console.log('Error from server', error);
-            };
-        });
+        socket.onerror = function(error) {
+            console.log('Error from server', error);
+        };
     }
 
     createSignature(payload, secretKey) {

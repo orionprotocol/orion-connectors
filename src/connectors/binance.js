@@ -6,18 +6,20 @@ const Order = require("../models/order");
 const Binance = require("binance-api-node").default;
 const BinanceWebsocket = require("./binance_websocket");
 const rp = require("request-promise");
+const Status = require("../models/status");
 
 const BINANCE_STATUSES = (status) => {
     switch(status) {
         case "NEW":
-            return "opened";
+            return Status.NEW;
         case "PARTIALLY_FILLED":
-            return "fillable";
+            return Status.PARTIALLY_FILLED;
         case "FILLED":
+            return Status.FILLED;
         case "CANCELED":
         case "REJECTED":
         case "EXPIRED":
-            return "closed";
+            return Status.CANCELED;
     }
 };
 
@@ -29,18 +31,33 @@ class BinanceConnector extends Connector{
         this.exchange = exchange;
     }
 
+    static convertToBinanceSymbol(symbol) {
+        return symbol.replace("_", "").replace("-", "");
+    }
+
     async submitOrder(order) {
-        order.rate = order.rate.toFixed(6);
+        order.price = order.price.toFixed(7);
         const response = await this.binance.order(
             {
-                symbol: order.pair,
+                symbol: BinanceConnector.convertToBinanceSymbol(order.symbol),
                 side: order.side,
-                quantity: order.amount,
-                price: order.rate
+                quantity: order.qty,
+                price: order.price
             });
 
-        const parsedPair = await this.unformatPair(order.pair);
-        return await this.getOrderStatus(parsedPair + "-" + response.orderId);
+        /*const parsedPair = await this.unformatPair(order.pair);
+        return await this.getOrderStatus(parsedPair + "-" + response.orderId);*/
+
+        return new Order(
+            this.exchange.id,
+            response.orderId,
+            order.symbol,
+            order.side,
+            order.price,
+            order.qty,
+            "LIMIT",
+            response.transactTime,
+            response.status ? BINANCE_STATUSES(response.status) : Status.NEW);
     };
 
     async cancelOrder(order) {
@@ -187,16 +204,21 @@ class BinanceConnector extends Connector{
     }
 
     async unformatPair(pair) {
-        const info = await this.binance.exchangeInfo();
-        if (typeof pair === "string") {
-            const item = info.symbols.find((orderInfo) => orderInfo.symbol === pair)
-            return item.baseAsset + "_" + item.quoteAsset;
-        } else if (pair.includes(item.symbol)) {
-            let pairs = {};
-            info.symbols.forEach(function (item, i) {
-                pairs[item.symbol] = item.baseAsset + "_" + item.quoteAsset;
-            });
-            return pairs;
+        if (!this.info) {
+            this.info = await this.binance.exchangeInfo();
+        } else {
+
+            if (typeof pair === "string") {
+                const item = this.info.symbols.find((orderInfo) => orderInfo.symbol === pair)
+                return item.baseAsset + "_" + item.quoteAsset;
+            } else if (pair.includes(item.symbol)) {
+                let pairs = {};
+                this.info.symbols.forEach(function (item, i) {
+                    pairs[item.symbol] = item.baseAsset + "_" + item.quoteAsset;
+                });
+                return pairs;
+            }
+
         }
     }
 }

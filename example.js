@@ -1,4 +1,4 @@
-const {UTG, Exchanges} = require("./utg");
+const {UTG, Exchanges} = require(".");
 
 function log(header, data) {
     console.log(header + '\n', JSON.stringify(data, null, 2) + "\n");

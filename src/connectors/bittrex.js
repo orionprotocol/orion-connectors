@@ -4,27 +4,40 @@ const Ticker = require("../models/ticker");
 const OrderBook = require("../models/order_book");
 const Order = require("../models/order");
 const { BittrexClient } = require("bittrex-node");
-const BittrexWebsocket = require("./bittrex_websocket");
+const { BittrexWebsocket, BittrexStatuses } = require("./bittrex_websocket");
 const rp = require("request-promise");
+const Status = require("../models/status");
 
 class BittrexConnector extends Connector{
     constructor(exchange) {
         super();
         this.bittrex = new BittrexClient({apiKey: exchange.apiKey, apiSecret: exchange.secretKey});
-        this.websocket = new BittrexWebsocket(exchange);
+        this.websocket = new BittrexWebsocket(exchange, this);
         this.exchange = exchange;
         this.publicApi = "https://bittrex.com/api/v1.1";
         this.marketApi = "https://bittrex.com/api/v1.1";
         this.accountApi = "https://bittrex.com/api/v1.1";
     }
 
+    static convertToBittrexSymbol(symbol) {
+        const assets = symbol.split('-');
+        return `${assets[1]}-${assets[0]}`;
+    }
+
+    static unformatPair(pair) {
+        const assets = pair.split('-');
+        return `${assets[1]}-${assets[0]}`;
+    }
+
     async submitOrder(order) {
         let response;
 
+        const bittrexSymbol = BittrexConnector.convertToBittrexSymbol(order.symbol);
+
         if (order.side === "buy")
-            response = await this.bittrex.buyLimit(order.pair, {quantity: order.amount, rate: order.rate});
+            response = await this.bittrex.buyLimit(bittrexSymbol, {quantity: order.qty, rate: order.price});
         else if (order.side === "sell")
-            response = await this.bittrex.sellLimit(order.pair, {quantity: order.amount, rate: order.rate});
+            response = await this.bittrex.sellLimit(bittrexSymbol, {quantity: order.qty, rate: order.price});
 
         return await this.getOrderStatus(response.uuid);
     };
@@ -92,24 +105,23 @@ class BittrexConnector extends Connector{
 
         if (!response) throw new Error("Can't get order");
 
-        const pair = this.unformatPair(response.Exchange);
+        const symbol = BittrexConnector.unformatPair(response.Exchange);
         const rate = response.Limit;
         const amount = response.Quantity;
-        const status = response.IsOpen?"opened":(response.Closed)?"closed":"fillable"; //I have doubts
-        const time = new Date(response.Opened);
+        const status = Status.NEW;
+        const time = new Date(response.Opened).getTime();
         const side = response.Type.split("_")[1].toLowerCase();
 
         return new Order(
-            pair,
+            this.exchange.id,
+            id,
+            symbol,
+            side,
             rate,
             amount,
-            id,
+            "LIMIT",
             time,
-            side,
-            this.exchange,
-            undefined,
-            status
-        );
+            status);
     };
 
     async getOrderHistory(pair, start, end) {
@@ -148,9 +160,9 @@ class BittrexConnector extends Connector{
         let orders = {};
         const current = this;
         response.forEach(function(item, i) {
-            if (!orders.hasOwnProperty(item.Exchange)) orders[current.unformatPair(item.Exchange)] = [];
-            orders[current.unformatPair(item.Exchange)].push(new Order(
-                current.unformatPair(item.Exchange),
+            if (!orders.hasOwnProperty(item.Exchange)) orders[BittrexConnector.unformatPair(item.Exchange)] = [];
+            orders[BittrexConnector.unformatPair(item.Exchange)].push(new Order(
+                BittrexConnector.unformatPair(item.Exchange),
                 item.Limit,
                 item.Quantity,
                 item.OrderUuid,
@@ -169,9 +181,6 @@ class BittrexConnector extends Connector{
         return pair.replace("_", "-");
     }
 
-    unformatPair(pair) {
-        return pair.replace("-", "_");
-    }
 }
 
-module.exports = BittrexConnector;
+module.exports = { BittrexConnector };

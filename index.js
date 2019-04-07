@@ -24,7 +24,7 @@ const AVAILABLE_CONNECTORS = {
     }
 };
 
-class UTG extends Connector{
+class Index extends Connector{
     constructor(exchanges) {
         super(exchanges);
         let exchangesList = {};
@@ -263,4 +263,4 @@ class UTG extends Connector{
     }
 }
 
-module.exports = {UTG, Exchanges, ExchangeOperation, Order};
+module.exports = {Index, Exchanges, ExchangeOperation, Order};

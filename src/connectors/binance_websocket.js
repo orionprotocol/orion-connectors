@@ -1,16 +1,19 @@
 const Order = require("../models/order");
+const Trade = require("../models/trade");
+const Status = require("../models/status");
 
 const BINANCE_STATUSES = (status) => {
     switch(status) {
         case "NEW":
-            return "opened";
+            return Status.NEW;
         case "PARTIALLY_FILLED":
-            return "fillable";
+            return Status.PARTIALLY_FILLED;
         case "FILLED":
+            return Status.FILLED;
         case "CANCELED":
         case "REJECTED":
         case "EXPIRED":
-            return "closed";
+            return Status.CANCELED;
     }
 };
 
@@ -21,26 +24,29 @@ class BinanceWebsocket {
     }
 
     subscribeToOrderUpdates(callback) {
+        const context = this;
         //Reconnect after 24 hour of connection
         setTimeout(function() {
             context.subscribeToOrderUpdates(callback);
-        }, 86364000);
+        }, 24*59*60*1000);
         this.binance.ws.user(async message => {
-            if (message.hasOwnProperty("eventType") && message.eventType === "executionReport") {
-                const info = await this.binance.exchangeInfo();
-                info.symbols.forEach(function(item, i) {
-                    if (item.symbol === message.symbol) {
-                        message.symbol = item.baseAsset + "_" + item.quoteAsset;
-                    }
-                });
+            if (message.hasOwnProperty("eventType")
+                && message.eventType === "executionReport"
+                && (message.executionType === "TRADE" || message.executionType === "CANCELED")) {
 
-                let date;
-                if (message.creationTime > message.eventTime)
-                    date = new Date(message.creationTime);
-                else
-                    date = new Date(message.eventTime);
+                const status = BINANCE_STATUSES(message.orderStatus);
 
-                callback(new Order(
+                const trade = new Trade(
+                    this.exchange.id,
+                    message.orderId,
+                    message.tradeId,
+                    message.price,
+                    status === Status.CANCELED ? 0 : message.quantity,
+                    BINANCE_STATUSES(message.orderStatus),
+                    message.eventTime);
+
+                callback(trade);
+                /*callback(new Order(
                     message.symbol,
                     message.price,
                     message.quantity,
@@ -49,7 +55,7 @@ class BinanceWebsocket {
                     message.side.toLowerCase(),
                     this.exchange,
                     message.orderType.toLowerCase(),
-                    BINANCE_STATUSES(message.orderStatus)), BINANCE_STATUSES(message.orderStatus));
+                    BINANCE_STATUSES(message.orderStatus)), BINANCE_STATUSES(message.orderStatus));*/
             }
         })
     }
