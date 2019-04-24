@@ -183,4 +183,4 @@ class BittrexConnector extends Connector{
 
 }
 
-module.exports = { BittrexConnector };
+module.exports = BittrexConnector;

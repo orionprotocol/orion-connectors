@@ -1,10 +1,13 @@
 const Connector = require("./src/connectors/connector");
 const PoloniexConnector = require("./src/connectors/poloniex");
 const BittrexConnector = require("./src/connectors/bittrex");
+const EmulatorConnector = require("./src/connectors/emulator");
 const BinanceConnector = require("./src/connectors/binance");
 const Exchange = require("./src/models/exchange");
 const ExchangeOperation = require("./src/models/exchange_operation");
 const Order = require("./src/models/order");
+const Trade = require("./src/models/trade");
+const Status = require("./src/models/status");
 
 const Exchanges = {
     POLONIEX: 'poloniex',
