@@ -12,76 +12,46 @@ const Exchanges = {
     BITTREX: 'bittrex'
 };
 
-const AVAILABLE_CONNECTORS = {
+const CONNECTORS_FACTORY = {
     [Exchanges.POLONIEX]: function(exchange) {
-        return new PoloniexConnector(exchange);
+        return exchange.apiKey === "emulator" ? new EmulatorConnector(exchange) : new PoloniexConnector(exchange);
     },
     [Exchanges.BITTREX]: function(exchange) {
-        return new BittrexConnector(exchange);
+        return exchange.apiKey === "emulator" ? new EmulatorConnector(exchange) : new BittrexConnector(exchange);
     },
     [Exchanges.BINANCE]: function(exchange) {
-        return new BinanceConnector(exchange);
+        return exchange.apiKey === "emulator" ? new EmulatorConnector(exchange) : new BinanceConnector(exchange);
     }
 };
 
-class Index extends Connector{
+class Connectors extends Connector{
+
     constructor(exchanges) {
         super(exchanges);
         let exchangesList = {};
-        for (let exchange in exchanges) {
-            const item = exchanges[exchange];
-            exchangesList[exchange] = new Exchange(exchange, item.key, item.secret);
+        let connectors = {};
+        for (let id in exchanges) {
+            if (exchanges.hasOwnProperty(id)) {
+                const item = exchanges[id];
+                exchangesList[id] = new Exchange(id, item.key, item.secret, item.balances);
+                connectors[id] = CONNECTORS_FACTORY[id](exchangesList[id]);
+            }
         }
         this.exchanges = exchangesList;
+        this.availableConnectors = connectors;
     }
 
-    async submitOrder(pair, side, ordQty, price) {
-        const headers = new Headers({
-            'Accept': 'application/json',
-            'X-HLV-KEY': '',
-            'X-HLV-SIGNATURE': ''
-        }), url = "https://beta.orionprotocol.io/api/order-route?symbol=" + pair + "&side=" + side + "&ordQty=" + ordQty + (price?"&price=" + price:"");
+    async createOrder(exchangeId, symbol, side, subOrdQty, price) {
+        const connector = this.availableConnectors[exchangeId];
 
-        const result = await fetch(url, {headers})
-            .then((response) => response.json())
-            .then((result) => {
-                if (result.hasOwnProperty("message")) throw new Error(result.message);
+        if (connector === undefined)
+            return Promise.reject("Can't send private requests to " + exchangeId + " exchange");
 
-                let response = [];
-                result.forEach((order, i) => {
-                    response.push({
-                        symbol: order.symbolExchange?order.symbolExchange:order.symbol,
-                        exchangeId: order.exchangeId,
-                        price: order.price,
-                        subOrdQty: order.ordQty
-                    })
-                });
-                return response})
-            .catch((error) => {
-                throw error;
-            });
+        const order = new ExchangeOperation(symbol, side , price, subOrdQty);
 
-        let orders = {};
-        let promises = [];
-
-        const current = this;
-        result.forEach(async function(item, i) {
-            //Skip unavailable exchange
-            if (current.exchanges[item.exchangeId] === undefined) orders[i] = "Can't send private requests to " + item.exchangeId + " exchange";
-
-            const connector = AVAILABLE_CONNECTORS[item.exchangeId](current.exchanges[item.exchangeId]);
-            const order = new ExchangeOperation(side, item.symbol, item.price, item.subOrdQty);
-            promises.push(
-                connector.submitOrder(order)
-                    .then(data => current.resolve(data, item.exchangeId))
-                    .catch(error => current.reject(error, item.exchangeId))
-            );
-        });
-
-        (await Promise.all(promises)).forEach(response => orders[response.exchangeId] = response);
-
-        return orders;
+        return connector.submitOrder(order);
     };
+
 
     async cancelOrder(orders) {
         let messages =  {};
@@ -91,8 +61,8 @@ class Index extends Connector{
 
         orders.forEach((order, i) => {
             const exchange = order.exchange;
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](current.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
                     connector.cancelOrder(order)
@@ -107,12 +77,11 @@ class Index extends Connector{
         return messages;
     };
     async getBalances() {
-        let balances = {};
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
                     connector.getBalances()
@@ -122,9 +91,11 @@ class Index extends Connector{
             }
         }
 
-        (await Promise.all(promises)).forEach(response => balances[response.exchangeId] = response);
-
-        return balances;
+        return Promise.all(promises).then(all => {
+            let balances = {};
+            all.forEach(response => balances[response.exchangeId] = response.result);
+            return balances;
+        });
     };
     async getTicker(pair) {
         if (pair === null || pair === undefined) throw new Error("INVALID_MARKET");
@@ -132,8 +103,8 @@ class Index extends Connector{
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
                     connector.getTicker(pair)
@@ -153,8 +124,8 @@ class Index extends Connector{
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
                     connector.getOrderBook(pair)
@@ -174,8 +145,8 @@ class Index extends Connector{
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 if (ids.hasOwnProperty(exchange)) {
                     promises.push(
@@ -200,8 +171,8 @@ class Index extends Connector{
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
                     connector.getOrderHistory(pair, start, end)
@@ -220,11 +191,11 @@ class Index extends Connector{
         let promises = [];
 
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 promises.push(
-                    connector.getOpenOrders(pair)
+                    OrderService.getOpenOrders(pair)
                         .then(data => this.resolve(data, exchange))
                         .catch(error => this.reject(error, exchange))
                 );
@@ -254,8 +225,8 @@ class Index extends Connector{
 
     orderWatcher(callback) {
         for (let exchange in this.exchanges) {
-            if (AVAILABLE_CONNECTORS.hasOwnProperty(exchange)) {
-                const connector = AVAILABLE_CONNECTORS[exchange](this.exchanges[exchange]);
+            if (this.availableConnectors.hasOwnProperty(exchange)) {
+                const connector = this.availableConnectors[exchange];
 
                 connector.websocket.subscribeToOrderUpdates(callback);
             }
@@ -263,4 +234,4 @@ class Index extends Connector{
     }
 }
 
-module.exports = {Index, Exchanges, ExchangeOperation, Order};
+module.exports = { Connectors, Exchanges, ExchangeOperation, Order };
