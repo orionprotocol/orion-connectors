@@ -2,6 +2,10 @@
   "name": "orion-connectors",
   "version": "1.0.0",
   "description": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orionprotocol/orion-connectors.git"
+  },
   "main": "index.js",
   "author": "",
   "license": "ISC",
