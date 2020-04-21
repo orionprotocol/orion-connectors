@@ -13,7 +13,8 @@ const Exchanges = {
     POLONIEX: 'poloniex',
     BINANCE: 'binance',
     BITTREX: 'bittrex',
-    COINEX: 'coinex'
+    COINEX: 'coinex',
+    BITMAX: 'bitmax'
 };
 
 const CONNECTORS_FACTORY = {
@@ -27,6 +28,9 @@ const CONNECTORS_FACTORY = {
         return exchange.apiKey === "emulator" ? new EmulatorConnector(exchange) : new BinanceConnector(exchange);
     },
     [Exchanges.COINEX]: function(exchange) {
+        return new EmulatorConnector(exchange);
+    },
+    [Exchanges.BITMAX]: function(exchange) {
         return new EmulatorConnector(exchange);
     }
 };
