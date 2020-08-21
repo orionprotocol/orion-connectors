@@ -14,7 +14,8 @@ const Exchanges = {
     BINANCE: 'binance',
     BITTREX: 'bittrex',
     COINEX: 'coinex',
-    BITMAX: 'bitmax'
+    BITMAX: 'bitmax',
+    KUCOIN: 'kucoin',
 };
 
 const CONNECTORS_FACTORY = {
@@ -31,6 +32,9 @@ const CONNECTORS_FACTORY = {
         return new EmulatorConnector(exchange);
     },
     [Exchanges.BITMAX]: function(exchange) {
+        return new EmulatorConnector(exchange);
+    },
+    [Exchanges.KUCOIN]: function(exchange) {
         return new EmulatorConnector(exchange);
     }
 };
